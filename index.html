@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Household Travel Survey Analysis Dashboard</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f6;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        .header {
+            background-color: #FF4B4B;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        
+        .content {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .iframe-container {
+            width: 100%;
+            height: 100%;
+            max-width: 1400px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+        }
+        
+        .loading h2 {
+            color: #262730;
+            margin-bottom: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #FF4B4B;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .deployment-notice {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        
+        .deployment-notice a {
+            color: #533f03;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚗 Demo Household Travel Survey Analysis Dashboard</h1>
+            <p>Comprehensive analysis of travel patterns, trip distribution, and mode choices</p>
+        </div>
+        
+        <div class="content">
+            <div class="iframe-container" id="dashboard-container">
+                <div class="loading">
+                    <h2>Loading Dashboard...</h2>
+                    <div class="spinner"></div>
+                    <div class="deployment-notice">
+                        <p><strong>Note:</strong> This dashboard requires deployment to Streamlit Cloud.</p>
+                        <p>To deploy your own version:</p>
+                        <ol style="text-align: left; display: inline-block;">
+                            <li>Push this project to GitHub</li>
+                            <li>Visit <a href="https://share.streamlit.io" target="_blank">share.streamlit.io</a></li>
+                            <li>Connect your repository and deploy</li>
+                            <li>Replace the URL below with your deployment URL</li>
+                        </ol>
+                    </div>
+                </div>
+                
+                <!-- Replace this URL with your Streamlit Cloud deployment URL -->
+                <!-- Example: https://your-app-name.streamlit.app -->
+                <iframe 
+                    id="streamlit-frame"
+                    src="https://your-hhs-dashboard.streamlit.app" 
+                    style="display: none;"
+                    onload="document.getElementById('dashboard-container').querySelector('.loading').style.display='none'; this.style.display='block';"
+                    onerror="document.getElementById('dashboard-container').innerHTML='<div class=\"deployment-notice\"><h3>Dashboard not yet deployed</h3><p>Please deploy to Streamlit Cloud first and update the iframe URL.</p></div>';">
+                </iframe>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Check if running locally
+        if (window.location.protocol === 'file:' || window.location.hostname === 'localhost') {
+            document.getElementById('streamlit-frame').src = 'http://localhost:8501';
+        }
+    </script>
+</body>
+</html>
