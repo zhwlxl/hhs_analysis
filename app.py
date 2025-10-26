@@ -493,10 +493,12 @@ def main():
         # Get household locations for filtered persons
         household_ids = filtered_persons['Family_Number'].unique()
         
-        # Merge household data with person data to get nationality
+        # Merge household data with person data to get nationality and household size
         household_persons = filtered_persons.groupby('Family_Number').agg({
-            'Nationality_Group': 'first'  # Take the first person's nationality as household nationality
+            'Nationality_Group': 'first',  # Take the first person's nationality as household nationality
+            'Person_id': 'count'  # Count number of persons in household
         }).reset_index()
+        household_persons.columns = ['Family_Number', 'Nationality_Group', 'Household_Size']
         
         filtered_households = households_df[households_df['Family_Number'].isin(household_ids)]
         filtered_households = filtered_households.merge(household_persons, on='Family_Number', how='left')
@@ -504,7 +506,7 @@ def main():
         # Create map if location data exists
         if 'House_Address_Latitude' in filtered_households.columns and 'House_Address_Longitude' in filtered_households.columns:
             # Clean location data
-            map_data = filtered_households[['Family_Number', 'House_Address_Latitude', 'House_Address_Longitude', 'Nationality_Group']].copy()
+            map_data = filtered_households[['House_Address_Latitude', 'House_Address_Longitude', 'Nationality_Group', 'Household_Size']].copy()
             map_data = map_data.dropna(subset=['House_Address_Latitude', 'House_Address_Longitude'])
             
             if len(map_data) > 0:
@@ -516,17 +518,25 @@ def main():
                     'Unknown': '#808080'
                 }
                 
-                # Create the map
+                # Create the map with custom hover template
                 fig_map = px.scatter_mapbox(
                     map_data,
                     lat='House_Address_Latitude',
                     lon='House_Address_Longitude',
                     color='Nationality_Group',
-                    hover_data=['Family_Number'],
+                    hover_data={'Household_Size': True, 
+                               'Nationality_Group': True,
+                               'House_Address_Latitude': False,
+                               'House_Address_Longitude': False},
                     color_discrete_map=nationality_colors,
                     zoom=10,
                     height=400,
                     title=f"Home Locations of {len(map_data)} Households by Nationality"
+                )
+                
+                # Customize hover template to show only nationality and household size
+                fig_map.update_traces(
+                    hovertemplate='<b>%{customdata[1]}</b><br>Household Size: %{customdata[0]}<extra></extra>'
                 )
                 
                 fig_map.update_layout(
@@ -586,11 +596,12 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
-    # Create three main analysis tabs
-    tab1, tab2, tab3 = st.tabs([
+    # Create four main analysis tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 LEVEL 1\nMobility Rates\n(How often they travel)",
         "🗺️ LEVEL 2\nTrip Distribution\n(Where they travel)",
-        "🚗 LEVEL 3\nMode Choice\n(How they travel)"
+        "🚗 LEVEL 3\nMode Choice\n(How they travel)",
+        "⏰ LEVEL 4\nTime Choice\n(When they travel)"
     ])
     
     # Track active tab for chatbot context
@@ -1395,6 +1406,337 @@ def main():
                     st.info(f"{demographic_var} data not available in the dataset.")
             except Exception as e:
                 st.info("Unable to generate demographic analysis. Please try a different demographic variable.")
+        
+        # Mode Choice Logit Model & Simulation Section
+        st.markdown("---")
+        
+        # Import and display the mode choice analysis
+        try:
+            # Store filtered data in session state for mode choice model
+            st.session_state.filtered_trips = filtered_trips
+            st.session_state.filtered_persons = filtered_persons
+            
+            # Import the simplified mode choice model display function
+            from mode_choice_model_simple import display_mode_choice_analysis
+            
+            # Display the mode choice analysis section
+            display_mode_choice_analysis()
+            
+        except ImportError as e:
+            st.error(f"Mode Choice Model not available: {str(e)}")
+            st.info("Please ensure the mode_choice_model.py file is in the project directory.")
+        except Exception as e:
+            st.error(f"Error in Mode Choice Analysis: {str(e)}")
+            with st.expander("Error Details"):
+                st.code(str(e))
+
+    # Level 4: Time Choice Analysis
+    with tab4:
+        st.session_state.active_tab = 'Level 4: Time Choice'
+        st.header("Time Choice Analysis")
+        st.markdown("This analysis shows when people travel throughout the day for different activities.")
+        
+        # Check if time data is available
+        time_columns = ['Trip_Departure_Time', 'Departure_Time', 'Trip_Start_Time', 'Start_Time', 'Time']
+        time_col = None
+        for col in time_columns:
+            if col in filtered_trips.columns:
+                time_col = col
+                break
+        
+        if time_col:
+            # Process time data
+            trips_with_time = filtered_trips.copy()
+            
+            # Convert time to hour of day
+            def extract_hour(time_val):
+                """Extract hour from various time formats"""
+                if pd.isna(time_val):
+                    return None
+                try:
+                    # Try parsing as time string (HH:MM:SS or HH:MM)
+                    time_str = str(time_val)
+                    if ':' in time_str:
+                        hour = int(time_str.split(':')[0])
+                        return hour if 0 <= hour <= 23 else None
+                    # Try parsing as numeric (e.g., 1430 for 14:30)
+                    elif len(time_str) >= 3:
+                        hour = int(time_str[:2])
+                        return hour if 0 <= hour <= 23 else None
+                except:
+                    return None
+                return None
+            
+            trips_with_time['Hour'] = trips_with_time[time_col].apply(extract_hour)
+            trips_with_time = trips_with_time.dropna(subset=['Hour'])
+            
+            # Merge with person data
+            trips_with_time = trips_with_time.merge(
+                filtered_persons[['Person_id', 'Status', 'Gender', 'Car_Available']], 
+                on='Person_id'
+            )
+            
+            if len(trips_with_time) > 0:
+                # Overall time-of-day profile
+                st.subheader("Overall Time-of-Day Travel Profile")
+                
+                hourly_trips = trips_with_time.groupby('Hour').size().reset_index(name='trip_count')
+                
+                fig_hourly = px.bar(
+                    hourly_trips,
+                    x='Hour',
+                    y='trip_count',
+                    title='Trip Departure Distribution by Hour of Day',
+                    labels={'Hour': 'Hour of Day (0-23)', 'trip_count': 'Number of Trips'},
+                    color='trip_count',
+                    color_continuous_scale='Blues'
+                )
+                
+                fig_hourly.update_layout(
+                    xaxis=dict(tickmode='linear', tick0=0, dtick=1),
+                    height=400
+                )
+                
+                st.plotly_chart(fig_hourly, use_container_width=True)
+                
+                # Time profile by activity purpose
+                st.subheader("Time-of-Day Profile by Activity Purpose")
+                
+                # Group by hour and purpose
+                hourly_by_purpose = trips_with_time.groupby(['Hour', 'Trip_Destination_Purpose_Std']).size().reset_index(name='trip_count')
+                
+                # Create line chart showing time profiles for each activity
+                fig_purpose_time = px.line(
+                    hourly_by_purpose,
+                    x='Hour',
+                    y='trip_count',
+                    color='Trip_Destination_Purpose_Std',
+                    title='Trip Departure Time Distribution by Activity Purpose',
+                    labels={'Hour': 'Hour of Day (0-23)', 'trip_count': 'Number of Trips', 'Trip_Destination_Purpose_Std': 'Activity'},
+                    markers=True,
+                    height=500
+                )
+                
+                fig_purpose_time.update_layout(
+                    xaxis=dict(tickmode='linear', tick0=0, dtick=1),
+                    legend=dict(
+                        yanchor="top",
+                        y=0.99,
+                        xanchor="left",
+                        x=1.01
+                    )
+                )
+                
+                st.plotly_chart(fig_purpose_time, use_container_width=True)
+                
+                # Heatmap of time by purpose
+                st.subheader("Activity Time Profile Heatmap")
+                
+                # Calculate percentage within each activity
+                total_by_purpose = hourly_by_purpose.groupby('Trip_Destination_Purpose_Std')['trip_count'].transform('sum')
+                hourly_by_purpose['percentage'] = (hourly_by_purpose['trip_count'] / total_by_purpose * 100).round(2)
+                
+                # Pivot for heatmap
+                pivot_time_purpose = hourly_by_purpose.pivot_table(
+                    values='percentage',
+                    index='Trip_Destination_Purpose_Std',
+                    columns='Hour',
+                    fill_value=0
+                )
+                
+                fig_heatmap = px.imshow(
+                    pivot_time_purpose,
+                    labels=dict(x="Hour of Day", y="Activity Purpose", color="% of Activity's Trips"),
+                    title="When Different Activities Occur Throughout the Day",
+                    aspect="auto",
+                    color_continuous_scale='YlOrRd',
+                    height=400
+                )
+                
+                fig_heatmap.update_xaxes(side="bottom")
+                
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+                
+                # Peak hours analysis
+                st.subheader("Peak Travel Times by Activity")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Find peak hour for each activity
+                    peak_hours = []
+                    for purpose in hourly_by_purpose['Trip_Destination_Purpose_Std'].unique():
+                        purpose_data = hourly_by_purpose[hourly_by_purpose['Trip_Destination_Purpose_Std'] == purpose]
+                        if len(purpose_data) > 0:
+                            peak_row = purpose_data.loc[purpose_data['trip_count'].idxmax()]
+                            peak_hours.append({
+                                'Activity': purpose,
+                                'Peak Hour': int(peak_row['Hour']),
+                                'Peak Trips': int(peak_row['trip_count']),
+                                'Peak %': f"{peak_row['percentage']:.1f}%"
+                            })
+                    
+                    peak_df = pd.DataFrame(peak_hours).sort_values('Peak Trips', ascending=False)
+                    
+                    st.write("**Peak Travel Hours by Activity Purpose**")
+                    st.dataframe(
+                        peak_df.style.format({
+                            'Peak Trips': '{:,.0f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                with col2:
+                    # Time period classification
+                    def classify_time_period(hour):
+                        if 6 <= hour < 9:
+                            return 'Morning Peak (6-9)'
+                        elif 9 <= hour < 12:
+                            return 'Late Morning (9-12)'
+                        elif 12 <= hour < 14:
+                            return 'Midday (12-14)'
+                        elif 14 <= hour < 17:
+                            return 'Afternoon (14-17)'
+                        elif 17 <= hour < 20:
+                            return 'Evening Peak (17-20)'
+                        elif 20 <= hour < 24:
+                            return 'Night (20-24)'
+                        else:
+                            return 'Early Morning (0-6)'
+                    
+                    trips_with_time['Time_Period'] = trips_with_time['Hour'].apply(classify_time_period)
+                    
+                    period_dist = trips_with_time.groupby('Time_Period').size().reset_index(name='trip_count')
+                    period_dist['percentage'] = (period_dist['trip_count'] / period_dist['trip_count'].sum() * 100).round(1)
+                    period_dist = period_dist.sort_values('trip_count', ascending=False)
+                    
+                    st.write("**Trip Distribution by Time Period**")
+                    st.dataframe(
+                        period_dist.style.format({
+                            'trip_count': '{:,.0f}',
+                            'percentage': '{:.1f}%'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                
+                # Time profile by market segment
+                st.subheader("Time-of-Day Profile by Market Segment")
+                
+                segment_var = st.selectbox(
+                    "Select market segment:",
+                    ['Status', 'Gender', 'Car_Available'],
+                    key='time_segment'
+                )
+                
+                hourly_by_segment = trips_with_time.groupby(['Hour', segment_var]).size().reset_index(name='trip_count')
+                
+                fig_segment_time = px.line(
+                    hourly_by_segment,
+                    x='Hour',
+                    y='trip_count',
+                    color=segment_var,
+                    title=f'Trip Departure Time Distribution by {segment_var}',
+                    labels={'Hour': 'Hour of Day (0-23)', 'trip_count': 'Number of Trips'},
+                    markers=True,
+                    height=450
+                )
+                
+                fig_segment_time.update_layout(
+                    xaxis=dict(tickmode='linear', tick0=0, dtick=1)
+                )
+                
+                st.plotly_chart(fig_segment_time, use_container_width=True)
+                
+                # Combined activity and segment analysis
+                st.markdown("---")
+                with st.expander("📈 Detailed Time Profile Analysis", expanded=False):
+                    st.subheader("Time Profile by Activity and Market Segment")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        selected_purpose = st.selectbox(
+                            "Select activity purpose:",
+                            sorted(trips_with_time['Trip_Destination_Purpose_Std'].unique()),
+                            key='time_purpose_detail'
+                        )
+                    
+                    with col2:
+                        selected_segment = st.selectbox(
+                            "Select market segment:",
+                            ['Status', 'Gender', 'Car_Available', 'Income_Level'],
+                            key='time_segment_detail'
+                        )
+                    
+                    # Filter and analyze
+                    purpose_segment_data = trips_with_time[trips_with_time['Trip_Destination_Purpose_Std'] == selected_purpose]
+                    
+                    if len(purpose_segment_data) > 0:
+                        hourly_purpose_segment = purpose_segment_data.groupby(['Hour', selected_segment]).size().reset_index(name='trip_count')
+                        
+                        # Calculate percentages within each segment
+                        total_by_segment = hourly_purpose_segment.groupby(selected_segment)['trip_count'].transform('sum')
+                        hourly_purpose_segment['percentage'] = (hourly_purpose_segment['trip_count'] / total_by_segment * 100).round(2)
+                        
+                        # Create visualization
+                        fig_detail = px.line(
+                            hourly_purpose_segment,
+                            x='Hour',
+                            y='percentage',
+                            color=selected_segment,
+                            title=f'Time Profile for {selected_purpose} by {selected_segment} (% of segment\'s {selected_purpose} trips)',
+                            labels={'Hour': 'Hour of Day', 'percentage': 'Percentage of Trips (%)'},
+                            markers=True,
+                            height=450
+                        )
+                        
+                        fig_detail.update_layout(
+                            xaxis=dict(tickmode='linear', tick0=0, dtick=1)
+                        )
+                        
+                        st.plotly_chart(fig_detail, use_container_width=True)
+                        
+                        # Summary statistics
+                        st.write("**Time Distribution Statistics**")
+                        
+                        stats_data = []
+                        for segment in hourly_purpose_segment[selected_segment].unique():
+                            seg_data = hourly_purpose_segment[hourly_purpose_segment[selected_segment] == segment]
+                            
+                            # Calculate mean hour weighted by trip count
+                            mean_hour = np.average(seg_data['Hour'], weights=seg_data['trip_count'])
+                            
+                            # Find peak hour
+                            peak_hour = seg_data.loc[seg_data['trip_count'].idxmax(), 'Hour']
+                            
+                            stats_data.append({
+                                selected_segment: segment,
+                                'Total Trips': seg_data['trip_count'].sum(),
+                                'Mean Hour': f"{mean_hour:.1f}",
+                                'Peak Hour': int(peak_hour),
+                                'Time Spread (hours)': seg_data[seg_data['trip_count'] > 0]['Hour'].max() - seg_data[seg_data['trip_count'] > 0]['Hour'].min()
+                            })
+                        
+                        stats_df = pd.DataFrame(stats_data)
+                        st.dataframe(
+                            stats_df.style.format({
+                                'Total Trips': '{:,.0f}'
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.info(f"No trips found for {selected_purpose} activity.")
+                
+            else:
+                st.warning(f"Time data found in column '{time_col}' but no valid time values could be extracted after filtering.")
+                st.info("Please check if the time format is correct or adjust your filters.")
+        else:
+            st.error("No time column found in the trips dataset.")
+            st.info(f"Expected one of: {', '.join(time_columns)}")
+            st.info("Available columns: " + ", ".join(filtered_trips.columns[:10].tolist()) + "...")
 
 if __name__ == "__main__":
     main()
